@@ -1,5 +1,4 @@
 
-
 import { Slider } from './Slider'
 
 export function ControlPanel({
@@ -30,7 +29,11 @@ export function ControlPanel({
   timerActive,
   setTimerActive,
   timerRemaining,
-  setTimerRemaining
+  setTimerRemaining,
+  undo,
+  redo,
+  exportPresets,
+  importPresets
 }) {
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60)
@@ -86,6 +89,26 @@ export function ControlPanel({
         )}
       </div>
       
+      {/* Undo/Redo buttons */}
+      <div className="undo-redo-row" style={{ display: 'flex', gap: '8px', marginBottom: '15px' }}>
+        <button 
+          className="btn-undo" 
+          onClick={undo}
+          title="Undo (Ctrl+Z)"
+          aria-label="Undo last change"
+        >
+          ↶ Undo
+        </button>
+        <button 
+          className="btn-redo" 
+          onClick={redo}
+          title="Redo (Ctrl+Y)"
+          aria-label="Redo last change"
+        >
+          ↷ Redo
+        </button>
+      </div>
+      
       {/* Preset buttons */}
       <div className="preset-row" role="group" aria-label="Sound presets">
         <button className="btn-preset" onClick={() => applyPreset('focus')}>Focus</button>
@@ -133,6 +156,27 @@ export function ControlPanel({
             + Save Current Mix
           </button>
         )}
+        
+        {/* Export/Import */}
+        <div className="export-import-row" style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+          <button className="btn-export" onClick={exportPresets} title="Export all presets">
+            ⬇ Export
+          </button>
+          <label className="btn-import" style={{ cursor: 'pointer' }}>
+            ⬆ Import
+            <input
+              type="file"
+              accept=".json"
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                if (e.target.files?.[0]) {
+                  importPresets(e.target.files[0])
+                  e.target.value = ''
+                }
+              }}
+            />
+          </label>
+        </div>
       </div>
 
       {/* Sound layers */}

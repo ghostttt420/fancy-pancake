@@ -618,6 +618,129 @@ kbd {
   align-items: center;
 }
 
+/* UNDO/REDO BUTTONS */
+.undo-redo-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 15px;
+}
+
+.btn-undo, .btn-redo {
+  flex: 1;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.8);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-undo:hover, .btn-redo:hover {
+  background: rgba(255,255,255,0.15);
+  color: white;
+}
+
+.btn-undo:active, .btn-redo:active {
+  transform: scale(0.98);
+}
+
+/* EXPORT/IMPORT BUTTONS */
+.export-import-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn-export, .btn-import {
+  flex: 1;
+  padding: 8px 12px;
+  background: rgba(255,255,255,0.06);
+  border: 1px dashed rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.7);
+  border-radius: 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  text-align: center;
+}
+
+.btn-export:hover, .btn-import:hover {
+  background: rgba(255,255,255,0.12);
+  border-style: solid;
+  color: white;
+}
+
+/* HIGH CONTRAST MODE */
+@media (prefers-contrast: high) {
+  .control-box {
+    background: rgba(0, 0, 0, 0.9);
+    border: 2px solid white;
+  }
+  
+  input[type=range]::-webkit-slider-runnable-track {
+    background: rgba(255, 255, 255, 0.5);
+    height: 6px;
+  }
+  
+  input[type=range]::-webkit-slider-thumb {
+    background: white;
+    border: 2px solid black;
+  }
+  
+  .btn-preset, .btn-undo, .btn-redo, .btn-export, .btn-import {
+    border: 2px solid white;
+    background: black;
+    color: white;
+  }
+  
+  .btn-preset:hover, .btn-undo:hover, .btn-redo:hover, .btn-export:hover, .btn-import:hover {
+    background: white;
+    color: black;
+  }
+  
+  .slider-label {
+    color: white;
+    font-weight: 700;
+  }
+  
+  .subtitle {
+    color: rgba(255, 255, 255, 0.9);
+  }
+}
+
+/* REDUCED MOTION */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+  
+  .btn-start:hover {
+    transform: none;
+  }
+  
+  .control-box {
+    transition: none;
+  }
+  
+  .recording-indicator {
+    animation: none;
+  }
+  
+  .rec-dot {
+    animation: none;
+  }
+  
+  .btn-record.recording {
+    animation: none;
+  }
+}
+
 /* MOBILE RESPONSIVE */
 @media (max-width: 480px) {
   .control-box {

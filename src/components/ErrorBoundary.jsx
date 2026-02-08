@@ -1,4 +1,6 @@
 import { Component } from 'react'
+import { captureException } from '../lib/sentry'
+import { track } from '../lib/analytics'
 
 export class ErrorBoundary extends Component {
   constructor(props) {
@@ -12,6 +14,19 @@ export class ErrorBoundary extends Component {
 
   componentDidCatch(error, errorInfo) {
     console.error('Lofi Mixer Error:', error, errorInfo)
+    
+    // Report to error tracking
+    captureException(error, { 
+      componentStack: errorInfo.componentStack,
+      type: 'react_error_boundary'
+    })
+    
+    // Track error for analytics
+    track('error', {
+      type: error.name,
+      message: error.message,
+      component: this.props.componentName || 'unknown'
+    })
   }
 
   handleReload = () => {

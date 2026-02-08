@@ -4,7 +4,7 @@ import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
 
 export default [
-  { ignores: ['dist', 'src/main.jsx'] },
+  { ignores: ['dist'] },
   {
     files: ['**/*.{js,jsx}'],
     languageOptions: {
@@ -34,6 +34,32 @@ export default [
         'warn',
         { allowConstantExport: true },
       ],
+    },
+  },
+  // Config files (node environment)
+  {
+    files: ['*.config.js', '*.config.ts', 'playwright.config.js', 'vitest.config.js'],
+    languageOptions: {
+      globals: globals.node,
+    },
+  },
+  // Test files
+  {
+    files: ['**/*.test.js', '**/*.test.jsx', 'src/test/**/*'],
+    languageOptions: {
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        global: 'readonly',
+        vi: 'readonly',
+        describe: 'readonly',
+        it: 'readonly',
+        expect: 'readonly',
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+        beforeAll: 'readonly',
+        afterAll: 'readonly',
+      },
     },
   },
 ]

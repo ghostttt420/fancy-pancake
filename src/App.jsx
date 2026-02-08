@@ -1,12 +1,17 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, lazy, Suspense } from 'react'
 import './App.css'
 
 import { ErrorBoundary } from './components/ErrorBoundary'
-import { Visualizer } from './components/Visualizer'
-import { ControlPanel } from './components/ControlPanel'
 import { StartScreen } from './components/StartScreen'
+import { Onboarding } from './components/Onboarding'
+import { ScreenReaderAnnouncer } from './components/ScreenReaderAnnouncer'
 import { SeededRandom } from './utils/seededRandom'
 import * as Audio from './utils/audio'
+import { track } from './lib/analytics'
+
+// Lazy load heavy components for better initial load
+const Visualizer = lazy(() => import('./components/Visualizer').then(m => ({ default: m.Visualizer })))
+const ControlPanel = lazy(() => import('./components/ControlPanel').then(m => ({ default: m.ControlPanel })))
 
 function App() {
   const [started, setStarted] = useState(false)
@@ -89,6 +94,121 @@ function App() {
     return saved ? parseInt(saved) : 80
   })
   
+  // Undo/Redo state
+  const historyRef = useRef([])
+  const historyIndexRef = useRef(-1)
+  const isUndoingRef = useRef(false)
+  const MAX_HISTORY = 50
+  
+  // Save state to history (debounced)
+  useEffect(() => {
+    if (isUndoingRef.current) return
+    
+    const timeout = setTimeout(() => {
+      const state = { vols: { ...vols }, tempo }
+      
+      // Remove any future history if we're in the middle
+      if (historyIndexRef.current < historyRef.current.length - 1) {
+        historyRef.current = historyRef.current.slice(0, historyIndexRef.current + 1)
+      }
+      
+      // Add new state
+      historyRef.current.push(state)
+      
+      // Limit history size
+      if (historyRef.current.length > MAX_HISTORY) {
+        historyRef.current.shift()
+      } else {
+        historyIndexRef.current++
+      }
+    }, 500)
+    
+    return () => clearTimeout(timeout)
+  }, [vols, tempo])
+  
+  const undo = useCallback(() => {
+    if (historyIndexRef.current > 0) {
+      isUndoingRef.current = true
+      historyIndexRef.current--
+      const state = historyRef.current[historyIndexRef.current]
+      setVols(state.vols)
+      setTempo(state.tempo)
+      setTimeout(() => { isUndoingRef.current = false }, 50)
+    }
+  }, [])
+  
+  const redo = useCallback(() => {
+    if (historyIndexRef.current < historyRef.current.length - 1) {
+      isUndoingRef.current = true
+      historyIndexRef.current++
+      const state = historyRef.current[historyIndexRef.current]
+      setVols(state.vols)
+      setTempo(state.tempo)
+      setTimeout(() => { isUndoingRef.current = false }, 50)
+    }
+  }, [])
+  
+  // Add undo/redo keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.target.tagName === 'INPUT') return
+      
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      }
+      if (((e.ctrlKey || e.metaKey) && e.key === 'y') || ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z')) {
+        e.preventDefault()
+        redo()
+      }
+    }
+    
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [undo, redo])
+  
+  // Export/Import functions
+  const exportPresets = useCallback(() => {
+    const data = {
+      presets: customPresets,
+      currentMix: { vols, tempo, seed, useSeededRNG },
+      version: '1.0'
+    }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `lofi-mixer-presets-${Date.now()}.json`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }, [customPresets, vols, tempo, seed, useSeededRNG])
+  
+  const importPresets = useCallback((file) => {
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result)
+        
+        if (data.presets) {
+          setCustomPresets(prev => ({ ...prev, ...data.presets }))
+        }
+        
+        if (data.currentMix) {
+          const { vols: importedVols, tempo: importedTempo } = data.currentMix
+          if (importedVols) setVols(importedVols)
+          if (importedTempo) setTempo(importedTempo)
+        }
+        
+        alert('Presets imported successfully!')
+      } catch (err) {
+        alert('Failed to import presets. Invalid file format.')
+      }
+    }
+    reader.readAsText(file)
+  }, [])
+  
   // Reduced motion preference
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(() => {
     if (typeof window === 'undefined') return false
@@ -113,6 +233,75 @@ function App() {
     localStorage.setItem('lofi-seed', seed.toString())
     localStorage.setItem('lofi-use-seed', useSeededRNG.toString())
   }, [seed, useSeededRNG])
+  
+  // URL State Sharing - load from URL hash on mount
+  useEffect(() => {
+    const hash = window.location.hash.slice(1)
+    if (!hash) return
+    
+    try {
+      const params = new URLSearchParams(hash)
+      const sharedVols = {}
+      let hasSharedState = false
+      
+      // Parse volume values
+      const volKeys = ['rain', 'drone', 'rumble', 'beats', 'chords', 'bass', 'vinyl', 'fire', 'thunder', 'hiss', 'tone', 'wind', 'birds', 'city', 'cafe', 'ocean', 'crickets', 'keyboard', 'clock', 'brown', 'master']
+      volKeys.forEach(key => {
+        const val = params.get(key)
+        if (val !== null) {
+          sharedVols[key] = parseFloat(val)
+          hasSharedState = true
+        }
+      })
+      
+      if (hasSharedState) {
+        setVols(prev => ({ ...prev, ...sharedVols }))
+      }
+      
+      // Parse tempo
+      const tempoVal = params.get('tempo')
+      if (tempoVal) setTempo(parseInt(tempoVal))
+      
+      // Parse seed
+      const seedVal = params.get('seed')
+      if (seedVal) {
+        setSeed(parseInt(seedVal))
+        setUseSeededRNG(true)
+      }
+      
+      // Parse visualizer
+      const vizVal = params.get('viz')
+      if (vizVal) setVisualizerStyle(vizVal)
+      
+    } catch (err) {
+      console.error('Failed to parse URL state:', err)
+    }
+  }, [])
+  
+  // URL State Sharing - update URL when settings change (debounced)
+  useEffect(() => {
+    if (!started) return
+    
+    const timeout = setTimeout(() => {
+      const params = new URLSearchParams()
+      
+      // Only include non-zero values to keep URL short
+      Object.entries(vols).forEach(([key, val]) => {
+        if (val > 0 && val !== 1) params.set(key, val.toFixed(2))
+      })
+      
+      if (tempo !== 80) params.set('tempo', tempo)
+      if (useSeededRNG) params.set('seed', seed)
+      if (visualizerStyle !== 'waveform') params.set('viz', visualizerStyle)
+      
+      const newHash = params.toString()
+      if (newHash) {
+        window.history.replaceState(null, null, '#' + newHash)
+      }
+    }, 500)
+    
+    return () => clearTimeout(timeout)
+  }, [vols, tempo, seed, useSeededRNG, visualizerStyle, started])
   
   // Debounced saves
   useEffect(() => {
@@ -187,6 +376,37 @@ function App() {
       }
     }
   }, [vols])
+  
+  // Visibility API - pause audio processing when tab hidden
+  useEffect(() => {
+    if (!started || !audioCtxRef.current) return
+    
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Suspend audio context to save CPU/battery
+        if (audioCtxRef.current?.state === 'running') {
+          audioCtxRef.current.suspend()
+        }
+        // Pause scheduler
+        if (schedulerTimerRef.current) {
+          cancelAnimationFrame(schedulerTimerRef.current)
+          schedulerTimerRef.current = null
+        }
+      } else {
+        // Resume audio context
+        if (audioCtxRef.current?.state === 'suspended') {
+          audioCtxRef.current.resume()
+        }
+        // Restart scheduler
+        if (!schedulerTimerRef.current) {
+          scheduler()
+        }
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [started, scheduler])
   
   const getRNG = useCallback(() => {
     return useSeededRNG ? rngRef.current : { next: () => Math.random(), range: (min, max) => min + Math.random() * (max - min) }
@@ -345,9 +565,77 @@ function App() {
     }
   }, [vols, scheduler])
   
+  // Cleanup function to properly disconnect all audio nodes
+  const cleanupAudio = useCallback(() => {
+    // Stop scheduler
+    if (schedulerTimerRef.current) {
+      cancelAnimationFrame(schedulerTimerRef.current)
+      schedulerTimerRef.current = null
+    }
+    
+    // Stop and disconnect all audio nodes
+    const nodes = nodesRef.current
+    
+    // Stop buffer sources
+    Object.entries(nodes).forEach(([_key, node]) => {
+      if (node && typeof node.stop === 'function') {
+        try {
+          node.stop()
+        } catch (e) {
+          // Node may already be stopped
+        }
+      }
+      if (node && typeof node.disconnect === 'function') {
+        try {
+          node.disconnect()
+        } catch (e) {
+          // Node may already be disconnected
+        }
+      }
+    })
+    
+    // Close audio context
+    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
+      audioCtxRef.current.close()
+    }
+    
+    // Clear refs
+    nodesRef.current = {}
+    audioCtxRef.current = null
+    analyserRef.current = null
+  }, [])
+  
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      cleanupAudio()
+    }
+  }, [cleanupAudio])
+  
   const handleVol = useCallback((type, val) => {
     const v = parseFloat(val)
-    setVols(prev => ({ ...prev, [type]: v }))
+    setVols(prev => {
+      const newVols = { ...prev, [type]: v }
+      
+      // Volume normalization: calculate total perceived volume
+      // to prevent clipping when many layers are active
+      const ambientKeys = ['rain', 'wind', 'fire', 'thunder', 'birds', 'city', 'cafe', 'ocean', 'crickets', 'drone', 'rumble', 'vinyl', 'hiss', 'keyboard', 'clock', 'brown']
+      const musicKeys = ['beats', 'chords', 'bass']
+      
+      const ambientSum = ambientKeys.reduce((sum, key) => sum + (newVols[key] || 0), 0)
+      const musicSum = musicKeys.reduce((sum, key) => sum + (newVols[key] || 0), 0)
+      
+      // Apply soft limiting: if total > threshold, gently reduce master
+      const totalLoad = (ambientSum * 0.3) + (musicSum * 0.7) // Music has more impact
+      const threshold = 2.5
+      
+      if (totalLoad > threshold && type !== 'master') {
+        const reduction = Math.max(0.5, 1 - (totalLoad - threshold) * 0.15)
+        newVols.master = Math.min(prev.master, reduction)
+      }
+      
+      return newVols
+    })
   }, [])
   
   const startRecording = useCallback(async () => {
@@ -561,14 +849,18 @@ function App() {
   return (
     <ErrorBoundary>
       <div className="app">
-        <Visualizer
-          vols={vols}
-          timeMode={timeMode}
-          visualizerStyle={visualizerStyle}
-          prefersReducedMotion={prefersReducedMotion}
-          analyserRef={analyserRef}
-          lightningTriggerRef={lightningTriggerRef}
-        />
+        <ScreenReaderAnnouncer />
+        <Onboarding onComplete={() => track('onboarding_complete')} />
+        <Suspense fallback={<div style={{ position: 'fixed', inset: 0, background: '#0f172a' }} />}>
+          <Visualizer
+            vols={vols}
+            timeMode={timeMode}
+            visualizerStyle={visualizerStyle}
+            prefersReducedMotion={prefersReducedMotion}
+            analyserRef={analyserRef}
+            lightningTriggerRef={lightningTriggerRef}
+          />
+        </Suspense>
         
         {/* Recording indicator */}
         {isRecording && (
@@ -597,36 +889,42 @@ function App() {
                 pointerEvents: showControls ? 'auto' : 'none'
               }}
             >
-              <ControlPanel
-                vols={vols}
-                handleVol={handleVol}
-                tempo={tempo}
-                setTempo={setTempo}
-                timeMode={timeMode}
-                visualizerStyle={visualizerStyle}
-                setVisualizerStyle={setVisualizerStyle}
-                useSeededRNG={useSeededRNG}
-                setUseSeededRNG={setUseSeededRNG}
-                seed={seed}
-                setSeed={setSeed}
-                customPresets={customPresets}
-                showPresetInput={showPresetInput}
-                setShowPresetInput={setShowPresetInput}
-                presetName={presetName}
-                setPresetName={setPresetName}
-                savePreset={savePreset}
-                loadPreset={loadPreset}
-                deletePreset={deletePreset}
-                applyPreset={applyPreset}
-                isRecording={isRecording}
-                toggleRecording={toggleRecording}
-                timerMinutes={timerMinutes}
-                setTimerMinutes={setTimerMinutes}
-                timerActive={timerActive}
-                setTimerActive={setTimerActive}
-                timerRemaining={timerRemaining}
-                setTimerRemaining={setTimerRemaining}
-              />
+              <Suspense fallback={<div style={{ color: 'white', padding: 20 }}>Loading...</div>}>
+                <ControlPanel
+                  vols={vols}
+                  handleVol={handleVol}
+                  tempo={tempo}
+                  setTempo={setTempo}
+                  timeMode={timeMode}
+                  visualizerStyle={visualizerStyle}
+                  setVisualizerStyle={setVisualizerStyle}
+                  useSeededRNG={useSeededRNG}
+                  setUseSeededRNG={setUseSeededRNG}
+                  seed={seed}
+                  setSeed={setSeed}
+                  customPresets={customPresets}
+                  showPresetInput={showPresetInput}
+                  setShowPresetInput={setShowPresetInput}
+                  presetName={presetName}
+                  setPresetName={setPresetName}
+                  savePreset={savePreset}
+                  loadPreset={loadPreset}
+                  deletePreset={deletePreset}
+                  applyPreset={applyPreset}
+                  isRecording={isRecording}
+                  toggleRecording={toggleRecording}
+                  timerMinutes={timerMinutes}
+                  setTimerMinutes={setTimerMinutes}
+                  timerActive={timerActive}
+                  setTimerActive={setTimerActive}
+                  timerRemaining={timerRemaining}
+                  setTimerRemaining={setTimerRemaining}
+                  undo={undo}
+                  redo={redo}
+                  exportPresets={exportPresets}
+                  importPresets={importPresets}
+                />
+              </Suspense>
             </div>
           </div>
         )}
