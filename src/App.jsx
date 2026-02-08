@@ -388,7 +388,7 @@ function App() {
   
   const scheduleNote = useCallback((beatNumber, time) => {
     const rng = getRNG()
-    const currentVols = vols
+    const currentVols = volsRef.current  // Use ref to avoid stale closure
     const humanize = rng.range(0, 0.015)
     const humanTime = time + humanize
     const currentBar = barCountRef.current
@@ -449,14 +449,32 @@ function App() {
         Audio.playBass(audioCtxRef.current, humanTime, currentVols.bass, chordIndex, barCountRef.current, rng, nodesRef.current.mixer)
       }
     }
-  }, [vols, getRNG])
+  }, [getRNG])  // Removed vols from deps, using ref instead
+  
+  // Use refs to avoid stale closures in scheduler
+  const tempoRef = useRef(tempo)
+  const volsRef = useRef(vols)
+  
+  useEffect(() => {
+    tempoRef.current = tempo
+  }, [tempo])
+  
+  useEffect(() => {
+    volsRef.current = vols
+  }, [vols])
   
   const scheduler = useCallback(() => {
+    const currentTempo = tempoRef.current
+    const currentVols = volsRef.current
+    
     // RNG available if needed for scheduler-level randomization
     getRNG()
+    
+    if (!audioCtxRef.current) return
+    
     while (nextNoteTimeRef.current < audioCtxRef.current.currentTime + 0.1) {
       scheduleNote(current16thNoteRef.current, nextNoteTimeRef.current)
-      const secondsPerBeat = 60.0 / tempo
+      const secondsPerBeat = 60.0 / currentTempo
       const swing = 0.03
       const isSwing = current16thNoteRef.current % 2 === 1
       nextNoteTimeRef.current += 0.25 * secondsPerBeat + (isSwing ? swing : 0)
@@ -466,13 +484,13 @@ function App() {
     driftOffsetRef.current += 0.005
     const breath = Math.sin(driftOffsetRef.current)
     
-    if (nodesRef.current.drone && vols.drone > 0) {
-      nodesRef.current.drone.gain.setTargetAtTime(Math.max(0, vols.drone + breath * 0.05), audioCtxRef.current.currentTime, 0.1)
+    if (nodesRef.current.drone && currentVols.drone > 0) {
+      nodesRef.current.drone.gain.setTargetAtTime(Math.max(0, currentVols.drone + breath * 0.05), audioCtxRef.current.currentTime, 0.1)
     }
     
-    if (nodesRef.current.wind && vols.wind > 0) {
+    if (nodesRef.current.wind && currentVols.wind > 0) {
       const windBreath = Math.sin(driftOffsetRef.current * 0.5) * 0.5 + 0.5
-      nodesRef.current.wind.gain.setTargetAtTime(vols.wind * windBreath, audioCtxRef.current.currentTime, 0.5)
+      nodesRef.current.wind.gain.setTargetAtTime(currentVols.wind * windBreath, audioCtxRef.current.currentTime, 0.5)
     }
     
     if (nodesRef.current.chordFilter) {
@@ -480,8 +498,8 @@ function App() {
       nodesRef.current.chordFilter.frequency.setTargetAtTime(newFreq, audioCtxRef.current.currentTime, 0.1)
     }
     
-    schedulerTimerRef.current = requestAnimationFrame(scheduler)
-  }, [tempo, vols.drone, vols.wind, scheduleNote, getRNG])
+    schedulerTimerRef.current = requestAnimationFrame(() => schedulerRef.current())
+  }, [scheduleNote, getRNG])
   
   // Assign scheduler to ref for visibility API access
   schedulerRef.current = scheduler
