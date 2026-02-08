@@ -377,36 +377,10 @@ function App() {
     }
   }, [vols])
   
-  // Visibility API - pause audio processing when tab hidden
-  useEffect(() => {
-    if (!started || !audioCtxRef.current) return
-    
-    const handleVisibilityChange = () => {
-      if (document.hidden) {
-        // Suspend audio context to save CPU/battery
-        if (audioCtxRef.current?.state === 'running') {
-          audioCtxRef.current.suspend()
-        }
-        // Pause scheduler
-        if (schedulerTimerRef.current) {
-          cancelAnimationFrame(schedulerTimerRef.current)
-          schedulerTimerRef.current = null
-        }
-      } else {
-        // Resume audio context
-        if (audioCtxRef.current?.state === 'suspended') {
-          audioCtxRef.current.resume()
-        }
-        // Restart scheduler
-        if (!schedulerTimerRef.current) {
-          scheduler()
-        }
-      }
-    }
-    
-    document.addEventListener('visibilitychange', handleVisibilityChange)
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
-  }, [started, scheduler])
+  // Store scheduler in ref to avoid circular dependency issues
+  const schedulerRef = useRef(null)
+  
+  // Scheduler function defined below will assign itself to this ref
   
   const getRNG = useCallback(() => {
     return useSeededRNG ? rngRef.current : { next: () => Math.random(), range: (min, max) => min + Math.random() * (max - min) }
@@ -508,6 +482,40 @@ function App() {
     
     schedulerTimerRef.current = requestAnimationFrame(scheduler)
   }, [tempo, vols.drone, vols.wind, scheduleNote, getRNG])
+  
+  // Assign scheduler to ref for visibility API access
+  schedulerRef.current = scheduler
+  
+  // Visibility API - pause audio processing when tab hidden
+  useEffect(() => {
+    if (!started || !audioCtxRef.current) return
+    
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // Suspend audio context to save CPU/battery
+        if (audioCtxRef.current?.state === 'running') {
+          audioCtxRef.current.suspend()
+        }
+        // Pause scheduler
+        if (schedulerTimerRef.current) {
+          cancelAnimationFrame(schedulerTimerRef.current)
+          schedulerTimerRef.current = null
+        }
+      } else {
+        // Resume audio context
+        if (audioCtxRef.current?.state === 'suspended') {
+          audioCtxRef.current.resume()
+        }
+        // Restart scheduler using ref to avoid circular dependency
+        if (!schedulerTimerRef.current && schedulerRef.current) {
+          schedulerRef.current()
+        }
+      }
+    }
+    
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange)
+  }, [started])
   
   const startEngine = useCallback(() => {
     try {
