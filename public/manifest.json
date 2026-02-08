@@ -1,0 +1,24 @@
+{
+  "name": "Sonic Sanctuary - Lofi Mixer",
+  "short_name": "Lofi Mixer",
+  "description": "Procedural lofi music generator with ambient sounds",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#1e293b",
+  "orientation": "any",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/icon-192x192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/icon-512x512.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["music", "productivity", "entertainment"]
+}
